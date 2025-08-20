@@ -1,0 +1,581 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useRef, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Send, Bot, User, Sparkles, Briefcase, GraduationCap, HeadphonesIcon, Menu, X, Trash2 } from "lucide-react"
+
+interface Message {
+  id: string
+  content: string
+  role: "user" | "assistant"
+  timestamp: Date
+}
+
+interface ChatSession {
+  id: string
+  title: string
+  messages: Message[]
+  role: "support" | "teacher" | "assistant"
+}
+
+const TypingIndicator = () => (
+  <div className="flex gap-1">
+    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
+    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+  </div>
+)
+
+const FormattedMessage = ({ content }: { content: string }) => {
+  // Split content into paragraphs and format
+  const formatContent = (text: string) => {
+    // Split by double newlines for paragraphs
+    const paragraphs = text.split("\n\n")
+
+    return paragraphs.map((paragraph, index) => {
+      // Check if it's a bullet point list
+      if (paragraph.includes("•") || paragraph.includes("-") || paragraph.includes("*")) {
+        const lines = paragraph.split("\n")
+        return (
+          <div key={index} className="mb-4">
+            {lines.map((line, lineIndex) => {
+              if (line.trim().startsWith("•") || line.trim().startsWith("-") || line.trim().startsWith("*")) {
+                const bulletContent = line.replace(/^[•\-*]\s*/, "")
+                return (
+                  <div key={lineIndex} className="flex items-start gap-2 mb-2">
+                    <span className="text-blue-500 font-bold mt-1">•</span>
+                    <span className="flex-1">{formatInlineText(bulletContent)}</span>
+                  </div>
+                )
+              }
+              return (
+                <div key={lineIndex} className="mb-2">
+                  {formatInlineText(line)}
+                </div>
+              )
+            })}
+          </div>
+        )
+      }
+
+      // Regular paragraph
+      return (
+        <div key={index} className="mb-4 last:mb-0">
+          {formatInlineText(paragraph)}
+        </div>
+      )
+    })
+  }
+
+  // Format inline text with bold and emphasis
+  const formatInlineText = (text: string) => {
+    // Split by **bold** patterns
+    const parts = text.split(/(\*\*.*?\*\*)/g)
+
+    return parts.map((part, index) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        const boldText = part.slice(2, -2)
+        return (
+          <strong key={index} className="font-semibold text-gray-900">
+            {boldText}
+          </strong>
+        )
+      }
+
+      // Handle *italic* patterns
+      const italicParts = part.split(/(\*.*?\*)/g)
+      return italicParts.map((italicPart, italicIndex) => {
+        if (italicPart.startsWith("*") && italicPart.endsWith("*") && !italicPart.startsWith("**")) {
+          const italicText = italicPart.slice(1, -1)
+          return (
+            <em key={`${index}-${italicIndex}`} className="font-light text-gray-700">
+              {italicText}
+            </em>
+          )
+        }
+        return <span key={`${index}-${italicIndex}`}>{italicPart}</span>
+      })
+    })
+  }
+
+  return <div className="leading-relaxed">{formatContent(content)}</div>
+}
+
+const StreamingText = ({ text, onComplete }: { text: string; onComplete?: () => void }) => {
+  const [displayedText, setDisplayedText] = useState("")
+  const [currentIndex, setCurrentIndex] = useState(0)
+
+  useEffect(() => {
+    if (currentIndex < text.length) {
+      const timer = setTimeout(() => {
+        setDisplayedText((prev) => prev + text[currentIndex])
+        setCurrentIndex((prev) => prev + 1)
+      }, 20) // Adjust speed here (lower = faster)
+
+      return () => clearTimeout(timer)
+    } else if (onComplete) {
+      onComplete()
+    }
+  }, [currentIndex, text, onComplete])
+
+  return <FormattedMessage content={displayedText} />
+}
+
+const roleConfigs = {
+  support: {
+    title: "Customer Support",
+    description: "Get help with services.",
+    icon: HeadphonesIcon,
+    color: "bg-blue-500",
+    prompt:
+      "You are a helpful customer support agent. Answer questions about services, pricing, policies, and troubleshooting in a clear and professional way. Use bullet points and bold text for important information.",
+  },
+  teacher: {
+    title: "AI Teacher",
+    description: "Learn complex topics.",
+    icon: GraduationCap,
+    color: "bg-green-500",
+    prompt:
+      "You are an expert teacher. Break down complex concepts into easy-to-understand explanations with examples. Use bullet points, bold headings, and structured formatting. Make learning engaging and accessible.",
+  },
+  assistant: {
+    title: "General Assistant",
+    description: "Friendly conversations.",
+    icon: Briefcase,
+    color: "bg-purple-500",
+    prompt:
+      "You are a friendly and helpful general assistant. Provide guidance, tips, and engage in meaningful conversation while being professional and supportive. Use bullet points and formatting to make responses clear and easy to read.",
+  },
+}
+
+export default function ModernChatbot() {
+  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [input, setInput] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
+  const [selectedRole, setSelectedRole] = useState<"support" | "teacher" | "assistant">("assistant")
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId)
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  useEffect(() => {
+    const saved = localStorage.getItem("chatSessions")
+    if (saved) {
+      setSessions(JSON.parse(saved))
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem("chatSessions", JSON.stringify(sessions))
+  }, [sessions])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [activeSession?.messages])
+
+  const createNewSession = (role: "support" | "teacher" | "assistant") => {
+    const newSession: ChatSession = {
+      id: Date.now().toString(),
+      title: `${roleConfigs[role].title} Chat`,
+      messages: [],
+      role,
+    }
+    setSessions((prev) => [newSession, ...prev])
+    setActiveSessionId(newSession.id)
+    setSelectedRole(role)
+  }
+
+  const deleteSession = (sessionId: string) => {
+    setSessions((prev) => prev.filter((session) => session.id !== sessionId))
+    if (activeSessionId === sessionId) {
+      setActiveSessionId(null)
+    }
+  }
+
+  const deleteAllSessions = () => {
+    setSessions([])
+    setActiveSessionId(null)
+  }
+
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading) return
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      content: input.trim(),
+      role: "user",
+      timestamp: new Date(),
+    }
+
+    let currentSession = activeSession
+    if (!currentSession) {
+      const newSession: ChatSession = {
+        id: Date.now().toString(),
+        title: `${roleConfigs[selectedRole].title} Chat`,
+        messages: [],
+        role: selectedRole,
+      }
+      setSessions((prev) => [newSession, ...prev])
+      setActiveSessionId(newSession.id)
+      currentSession = newSession
+    }
+
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.id === currentSession!.id ? { ...session, messages: [...session.messages, userMessage] } : session,
+      ),
+    )
+
+    setInput("")
+    setIsLoading(true)
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [...currentSession.messages, userMessage],
+          role: currentSession.role,
+        }),
+      })
+
+      if (!response.ok) throw new Error("Failed to get response")
+
+      const data = await response.json()
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: data.content,
+        role: "assistant",
+        timestamp: new Date(),
+      }
+
+      setStreamingMessageId(assistantMessage.id)
+
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === currentSession!.id
+            ? { ...session, messages: [...session.messages, assistantMessage] }
+            : session,
+        ),
+      )
+    } catch (error) {
+      console.error("Error:", error)
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: "I'm sorry, there was an error processing your request. Please try again.",
+        role: "assistant",
+        timestamp: new Date(),
+      }
+
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === currentSession!.id ? { ...session, messages: [...session.messages, errorMessage] } : session,
+        ),
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+      {/* Main container with 80% width and top/bottom margins */}
+      <div className="w-5/5 p-0 md:p-0 lg:p-6 mx-auto  h-screen flex flex-col">
+        {/* Header section */}
+        <div className="mb-4 text-center">
+          <div className="flex items-center justify-center gap-3 mb-8"></div>
+        </div>
+
+        {/* Main content area with sidebar and chat */}
+        <div className="flex-1 flex gap-3 min-h-0 relative">
+          {/* Hamburger menu toggle button */}
+          <Button
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="fixed top-20 left-4 md:top-0absolute top-2 left-2 md:top-4 md:left-4 z-50 bg-white/90 backdrop-blur-sm text-gray-900 hover:bg-white shadow-lg sm:left-4 z-50 bg-white/90 backdrop-blur-sm text-gray-900 hover:bg-white shadow-lg"
+            size="sm"
+          >
+            {isSidebarCollapsed ? <Menu className="w-4 h-4" /> : <X className="w-4 h-4" />}
+          </Button>
+
+          {/* Sidebar with assistant selection and chat history */}
+          <div
+            className={`
+            flex flex-col gap-4 transition-all duration-300 ease-in-out
+            ${isSidebarCollapsed ? "w-0 overflow-hidden" : "w-80 min-w-80"}
+            md:relative absolute md:translate-x-0 z-40
+            ${!isSidebarCollapsed ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+          `}
+          >
+            {!isSidebarCollapsed && (
+              <>
+                {/* Assistant selection card */}
+                <Card className="p-6 shadow-xl border-0 bg-white/80 backdrop-blur-sm">
+                  <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Bot className="w-5 h-5" />
+                    Choose Your Assistant
+                  </h3>
+                  <Tabs
+                    value={selectedRole}
+                    onValueChange={(value) => setSelectedRole(value as any)}
+                    className="w-full"
+                  >
+                    <TabsList className="grid w-full grid-cols-1 gap-2 h-auto bg-transparent p-0">
+                      {Object.entries(roleConfigs).map(([key, config]) => {
+                        const Icon = config.icon
+                        return (
+                          <TabsTrigger
+                            key={key}
+                            value={key}
+                            className="flex items-center gap-3 p-4 rounded-xl border-2 border-transparent data-[state=active]:border-blue-200 data-[state=active]:bg-blue-50 hover:bg-gray-50 transition-all duration-200 justify-start h-auto"
+                          >
+                            <div className={`p-2 rounded-lg ${config.color} text-white`}>
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div className="text-left">
+                              <div className="font-medium text-gray-900">{config.title}</div>
+                              <div className="text-xs text-gray-500">{config.description}</div>
+                            </div>
+                          </TabsTrigger>
+                        )
+                      })}
+                    </TabsList>
+                  </Tabs>
+                  <Button
+                    onClick={() => createNewSession(selectedRole)}
+                    className="w-full mt-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all duration-200"
+                  >
+                    Start New Chat
+                  </Button>
+                </Card>
+
+                {/* Chat history card */}
+                <Card className="flex-1 p-4 shadow-xl border-0 bg-white/80 backdrop-blur-sm min-w-0 overflow-hidden">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-gray-900">Recent Chats</h3>
+                    <div className="flex gap-1">
+                      {sessions.length > 0 && (
+                        <Button
+                          onClick={deleteAllSessions}
+                          className="bg-transparent hover:bg-red-50 text-red-600 p-1 h-auto"
+                          size="sm"
+                          title="Delete all chats"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <ScrollArea className="h-full">
+                    <div className="space-y-2">
+                      {sessions.map((session) => {
+                        const config = roleConfigs[session.role]
+                        const Icon = config.icon
+                        return (
+                          <div
+                            key={session.id}
+                            className={`group relative p-3 rounded-lg transition-all duration-200 hover:bg-gray-50 ${
+                              activeSessionId === session.id
+                                ? "bg-blue-50 border-2 border-blue-200"
+                                : "border-2 border-transparent"
+                            }`}
+                          >
+                            <button onClick={() => setActiveSessionId(session.id)} className="w-full text-left">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className={`p-1 rounded ${config.color} text-white`}>
+                                  <Icon className="w-3 h-3" />
+                                </div>
+                                <span className="font-medium text-sm text-gray-900 truncate flex-1">
+                                  {session.title}
+                                </span>
+                              </div>
+                              <div className="text-xs text-gray-500">{session.messages.length} messages</div>
+                            </button>
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                deleteSession(session.id)
+                              }}
+                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-transparent hover:bg-red-50 text-red-600 p-1 h-auto transition-opacity"
+                              size="sm"
+                              title="Delete chat"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </ScrollArea>
+                </Card>
+              </>
+            )}
+          </div>
+
+          {/* Main chat area */}
+          <div className="flex-1 flex min-h-0 transition-all duration-300">
+            <Card className="flex-1 shadow-xl border-0 bg-white/90 backdrop-blur-sm flex flex-col">
+              {activeSession ? (
+                <>
+                  {/* Chat header */}
+                  <div className="p-4 md:p-6 border-b border-gray-100">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`p-2 md:p-3 rounded-xl ${roleConfigs[activeSession.role].color} text-white shadow-lg`}
+                      >
+                        {(() => {
+                          const Icon = roleConfigs[activeSession.role].icon
+                          return <Icon className="w-5 h-5 md:w-6 md:h-6" />
+                        })()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-lg md:text-xl font-semibold text-gray-900 truncate">
+                          {activeSession.title}
+                        </h2>
+                        <p className="text-sm text-gray-600 truncate">{roleConfigs[activeSession.role].description}</p>
+                      </div>
+                      <Badge variant="secondary" className="hidden sm:inline-flex">
+                        {activeSession.messages.length} messages
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {/* Messages area */}
+                  <ScrollArea className="flex-1 p-4 md:p-6">
+                    <div className="space-y-4 md:space-y-6">
+                      {activeSession.messages.map((message) => (
+                        <div
+                          key={message.id}
+                          className={`flex gap-2 md:gap-4 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                        >
+                          {message.role === "assistant" && (
+                            <Avatar className="w-8 h-8 md:w-10 md:h-10 shadow-lg flex-shrink-0">
+                              <AvatarFallback className={`${roleConfigs[activeSession.role].color} text-white`}>
+                                <Bot className="w-4 h-4 md:w-5 md:h-5" />
+                              </AvatarFallback>
+                            </Avatar>
+                          )}
+                          <div
+                            className={`max-w-[85%] md:max-w-[70%] p-3 md:p-4 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl ${
+                              message.role === "user"
+                                ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white"
+                                : "bg-white border border-gray-100"
+                            }`}
+                          >
+                            {message.role === "user" ? (
+                              <p className="text-white leading-relaxed text-sm md:text-base">{message.content}</p>
+                            ) : (
+                              <div className="text-gray-900 text-sm md:text-base">
+                                {streamingMessageId === message.id ? (
+                                  <StreamingText
+                                    text={message.content}
+                                    onComplete={() => setStreamingMessageId(null)}
+                                  />
+                                ) : (
+                                  <FormattedMessage content={message.content} />
+                                )}
+                              </div>
+                            )}
+                            <div
+                              className={`text-xs mt-2 ${message.role === "user" ? "text-blue-100" : "text-gray-500"}`}
+                            >
+                              {new Date(message.timestamp).toLocaleTimeString()}
+                            </div>
+                          </div>
+                          {message.role === "user" && (
+                            <Avatar className="w-8 h-8 md:w-10 md:h-10 shadow-lg flex-shrink-0">
+                              <AvatarFallback className="bg-gray-600 text-white">
+                                <User className="w-4 h-4 md:w-5 md:h-5" />
+                              </AvatarFallback>
+                            </Avatar>
+                          )}
+                        </div>
+                      ))}
+                      {isLoading && (
+                        <div className="flex gap-2 md:gap-4 justify-start">
+                          <Avatar className="w-8 h-8 md:w-10 md:h-10 shadow-lg">
+                            <AvatarFallback className={`${roleConfigs[activeSession.role].color} text-white`}>
+                              <Bot className="w-4 h-4 md:w-5 md:h-5" />
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="bg-white border border-gray-100 p-3 md:p-4 rounded-2xl shadow-lg">
+                            <TypingIndicator />
+                          </div>
+                        </div>
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  </ScrollArea>
+
+                  {/* Message input area with full width on mobile */}
+                  <div className="px-0 py-2 md:p-4 border-t border-gray-100">
+                    <div className="flex gap-1 md:gap-3 px-1 md:px-0">
+                      <Input
+                        ref={inputRef}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        placeholder={`Ask your ${roleConfigs[activeSession.role].title.toLowerCase()}...`}
+                        className="flex-1 h-12 md:h-14 px-4 md:px-5 rounded-xl border-2 border-gray-200 focus:border-blue-400 transition-colors duration-200 shadow-sm text-sm md:text-base"
+                        disabled={isLoading}
+                      />
+                      <Button
+                        onClick={sendMessage}
+                        disabled={!input.trim() || isLoading}
+                        className="h-12 md:h-14 px-4 md:px-6 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50"
+                      >
+                        <Send className="w-4 h-4 md:w-5 md:h-5" />
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Welcome screen */
+                <div className="flex-1 flex items-center justify-center p-6 md:p-12">
+                  <div className="text-center">
+                    {/* Logo image */}
+                    <div className="mb-4 md:mb-6">
+                      <img
+                        src="/EVOXA.png"
+                        alt="Company Logo"
+                        className="mx-auto max-w-full h-auto max-h-100 md:max-h-100 object-contain opacity-60 "
+                      />
+                    </div>
+                    <Button
+                      onClick={() => createNewSession(selectedRole)}
+                      className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all duration-200"
+                    >
+                      Start Your First Chat
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
