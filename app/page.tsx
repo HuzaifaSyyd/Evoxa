@@ -303,7 +303,7 @@ export default function ModernChatbot() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
       {/* Main container with 80% width and top/bottom margins */}
-      <div className="w-5/5 p-0 md:p-0 lg:p-6 mx-auto  h-screen flex flex-col">
+      <div className="w-5/5 p-0 md:p-0  mx-auto  h-screen flex flex-col">
         {/* Header section */}
         <div className="mb-4 text-center">
           <div className="flex items-center justify-center gap-3 mb-8"></div>
@@ -463,7 +463,7 @@ export default function ModernChatbot() {
                   </div>
 
                   {/* Messages area */}
-                  <ScrollArea className="flex-1 p-4 md:p-6">
+                  <ScrollArea className="flex-1 flex p-4 md:p-6 min-h-0">
                     <div className="space-y-4 md:space-y-6">
                       {activeSession.messages.map((message) => (
                         <div
@@ -560,7 +560,7 @@ export default function ModernChatbot() {
                       <img
                         src="/EVOXA.png"
                         alt="Company Logo"
-                        className="mx-auto max-w-full h-auto max-h-100 md:max-h-100 object-contain opacity-60 "
+                        className="mx-auto max-w-full h-auto lg:max-h-100 sm:max-h-64 md:max-h-64 object-contain opacity-60 "
                       />
                     </div>
                     <Button
